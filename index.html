@@ -1,0 +1,685 @@
+```html
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-black">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NFC Physical Security Audit Terminal</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts for Monospace Code Aesthetic -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        cyber: {
+                            bg: '#050508',
+                            card: '#0d0e15',
+                            border: '#1f293d',
+                            green: '#00ff66',
+                            cyan: '#00f0ff',
+                            red: '#ff0055',
+                            yellow: '#ffcc00',
+                            dim: '#4a5568'
+                        }
+                    },
+                    fontFamily: {
+                        mono: ['"Fira Code"', 'Courier New', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* Custom CRT monitor, matrix glow, and retro scanline effects */
+        body {
+            font-family: 'Fira Code', monospace;
+            background-color: #050508;
+            color: #00ff66;
+            overflow-x: hidden;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* CRT Glitch & Scanline overlay */
+        .scanlines {
+            background: linear-gradient(
+                rgba(18, 16, 16, 0) 50%, 
+                rgba(0, 0, 0, 0.3) 50%
+            ), linear-gradient(
+                90deg,
+                rgba(255, 0, 0, 0.03),
+                rgba(0, 255, 0, 0.01),
+                rgba(0, 0, 255, 0.03)
+            );
+            background-size: 100% 3px, 6px 100%;
+            pointer-events: none;
+        }
+
+        /* Neon glow utilities */
+        .glow-green {
+            text-shadow: 0 0 8px rgba(0, 255, 102, 0.6), 0 0 15px rgba(0, 255, 102, 0.3);
+        }
+        .glow-cyan {
+            text-shadow: 0 0 8px rgba(0, 240, 255, 0.6), 0 0 15px rgba(0, 240, 255, 0.3);
+        }
+        .glow-red {
+            text-shadow: 0 0 8px rgba(255, 0, 85, 0.6), 0 0 15px rgba(255, 0, 85, 0.3);
+        }
+        .glow-yellow {
+            text-shadow: 0 0 8px rgba(255, 204, 0, 0.6), 0 0 15px rgba(255, 204, 0, 0.3);
+        }
+        .box-glow-green {
+            box-shadow: 0 0 15px rgba(0, 255, 102, 0.15), inset 0 0 15px rgba(0, 255, 102, 0.05);
+        }
+        .box-glow-cyan {
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.2), inset 0 0 15px rgba(0, 240, 255, 0.05);
+        }
+
+        /* Terminal Blinking Cursor */
+        .cursor {
+            display: inline-block;
+            width: 8px;
+            height: 1.1em;
+            background-color: #00ff66;
+            vertical-align: sub;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 49% { opacity: 1; }
+            50%, 100% { opacity: 0; }
+        }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #050508;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #1f293d;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #00ff66;
+        }
+    </style>
+</head>
+<body class="h-full flex flex-col justify-between selection:bg-cyber-green selection:text-black relative">
+
+    <!-- Matrix Background Canvas -->
+    <canvas id="matrixCanvas" class="fixed inset-0 z-0 opacity-25 pointer-events-none"></canvas>
+
+    <!-- CRT Scanline Filter Layer -->
+    <div class="scanlines fixed inset-0 z-10"></div>
+
+    <!-- Main Application UI -->
+    <div class="relative z-20 flex flex-col min-h-screen max-w-4xl mx-auto w-full p-3 sm:p-6 justify-between">
+        
+        <!-- Header / Status Bar -->
+        <header class="flex items-center justify-between border-b border-cyber-border/80 pb-3 mb-4 bg-cyber-bg/80 backdrop-blur-md rounded-t-lg px-3 py-2">
+            <div class="flex items-center space-x-2">
+                <span class="inline-block w-3 h-3 rounded-full bg-cyber-red animate-pulse"></span>
+                <span class="inline-block w-3 h-3 rounded-full bg-cyber-yellow"></span>
+                <span class="inline-block w-3 h-3 rounded-full bg-cyber-green"></span>
+                <span class="text-xs sm:text-sm font-bold text-gray-400 ml-2 tracking-wider">NFC_AUDIT_TERMINAL v2.5</span>
+            </div>
+            
+            <!-- Controls (Audio, Share, Config) -->
+            <div class="flex items-center space-x-2 sm:space-x-3 text-xs">
+                <button id="soundToggle" onclick="toggleSound()" class="flex items-center space-x-1 px-2.5 py-1 rounded border border-cyber-border hover:border-cyber-green text-gray-400 hover:text-cyber-green transition">
+                    <i id="soundIcon" class="fas fa-volume-mute"></i>
+                    <span id="soundLabel" class="hidden sm:inline">Mute</span>
+                </button>
+                
+                <button onclick="copyShareUrl()" class="flex items-center space-x-1 px-2.5 py-1 rounded border border-cyber-border hover:border-cyber-green text-gray-400 hover:text-cyber-green transition">
+                    <i class="fas fa-share-nodes"></i>
+                    <span class="hidden sm:inline">Share</span>
+                </button>
+
+                <button onclick="openConfigModal()" class="flex items-center space-x-1 px-2.5 py-1 rounded border border-cyber-border hover:border-cyber-cyan text-gray-400 hover:text-cyber-cyan transition">
+                    <i class="fas fa-sliders-h"></i>
+                    <span class="hidden sm:inline">Configure</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Terminal Workspace -->
+        <main class="flex-1 flex flex-col justify-start overflow-hidden">
+            
+            <!-- Terminal Output Log Box -->
+            <div id="terminalWindow" class="flex-1 overflow-y-auto space-y-2 text-xs sm:text-sm leading-relaxed pr-2 mb-4 scroll-smooth min-h-[220px]">
+                <!-- Log entries typed programmatically -->
+            </div>
+
+            <!-- Audit Alert Banner Card (Revealed after boot sequence) -->
+            <div id="auditBanner" class="hidden transition-all duration-700 transform translate-y-4 opacity-0 mb-4">
+                <div class="bg-cyber-card/90 border border-cyber-green box-glow-green rounded-lg p-4 sm:p-6 backdrop-blur-md relative overflow-hidden">
+                    <div class="flex items-start space-x-4">
+                        <div class="p-3 bg-cyber-green/10 rounded-lg border border-cyber-green/30 text-cyber-green shrink-0 mt-1">
+                            <i class="fas fa-shield-halved text-2xl sm:text-3xl"></i>
+                        </div>
+                        <div class="flex-1">
+                            <div class="flex items-center space-x-2">
+                                <span class="bg-cyber-green/20 text-cyber-green text-[10px] sm:text-xs px-2 py-0.5 rounded font-bold uppercase tracking-wider">
+                                    Status: Payload Delivered
+                                </span>
+                                <span id="auditTimestamp" class="text-[10px] text-gray-500 font-mono"></span>
+                            </div>
+                            
+                            <h1 id="displayTitle" class="text-base sm:text-2xl font-bold text-white tracking-wide mt-1 glow-green">
+                                PHYSICAL PROXIMITY AUDIT COMPLETE
+                            </h1>
+                            
+                            <p id="displayMessage" class="text-gray-300 text-xs sm:text-sm mt-2 leading-relaxed">
+                                Relax! You have successfully passed the physical NFC proximity test. You scanned the card of <span id="displayName" class="text-cyber-green font-bold">Alex Mercer</span>.
+                            </p>
+                            
+                            <div class="mt-2 text-xs text-cyber-cyan">
+                                <i class="fas fa-user-tag mr-1"></i> <span id="displayRole">Senior Security Consultant & Red Teamer</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quick Action Buttons -->
+                    <div class="mt-5 pt-4 border-t border-cyber-border/80 grid grid-cols-2 sm:grid-cols-5 gap-2">
+                        <a id="linkLinkedIn" href="#" target="_blank" class="flex items-center justify-center space-x-2 bg-cyber-bg border border-cyber-border hover:border-cyber-green hover:text-cyber-green text-gray-300 p-2.5 rounded text-xs transition duration-200">
+                            <i class="fab fa-linkedin text-sm"></i>
+                            <span>LinkedIn</span>
+                        </a>
+                        <a id="linkGitHub" href="#" target="_blank" class="flex items-center justify-center space-x-2 bg-cyber-bg border border-cyber-border hover:border-cyber-cyan hover:text-cyber-cyan text-gray-300 p-2.5 rounded text-xs transition duration-200">
+                            <i class="fab fa-github text-sm"></i>
+                            <span>GitHub</span>
+                        </a>
+                        <a id="linkEmail" href="#" class="flex items-center justify-center space-x-2 bg-cyber-bg border border-cyber-border hover:border-cyber-red hover:text-cyber-red text-gray-300 p-2.5 rounded text-xs transition duration-200">
+                            <i class="fas fa-envelope text-sm"></i>
+                            <span>Email</span>
+                        </a>
+                        <button onclick="downloadVCard()" class="flex items-center justify-center space-x-2 bg-cyber-bg border border-cyber-border hover:border-cyber-yellow hover:text-cyber-yellow text-gray-300 p-2.5 rounded text-xs transition duration-200">
+                            <i class="fas fa-id-card text-sm"></i>
+                            <span>vCard</span>
+                        </button>
+                        <button onclick="cycleMatrixTheme()" class="flex items-center justify-center space-x-2 bg-cyber-bg border border-cyber-border hover:border-cyber-cyan hover:text-cyber-cyan text-gray-300 p-2.5 rounded text-xs transition duration-200 col-span-2 sm:col-span-1">
+                            <i class="fas fa-palette text-sm"></i>
+                            <span>Theme</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+
+        <!-- CLI Prompt Input Bar -->
+        <footer class="mt-2 bg-cyber-bg border border-cyber-border focus-within:border-cyber-green rounded-lg p-2.5 flex items-center space-x-2 text-xs sm:text-sm transition-colors">
+            <span class="text-cyber-green font-bold shrink-0">guest@cyber-card:~$</span>
+            <input id="cliInput" type="text" autocomplete="off" spellcheck="false" placeholder="Type 'help' for available commands..." class="flex-1 bg-transparent border-none outline-none text-white font-mono placeholder-gray-600">
+            <button onclick="handleCommandSubmit()" class="text-gray-500 hover:text-cyber-green p-1 px-2">
+                <i class="fas fa-terminal"></i>
+            </button>
+        </footer>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="fixed bottom-16 right-4 z-50 bg-cyber-card border border-cyber-green text-cyber-green text-xs px-4 py-2 rounded shadow-lg transition-all duration-300 transform translate-y-10 opacity-0 pointer-events-none flex items-center space-x-2">
+        <i class="fas fa-check-circle"></i>
+        <span id="toastMsg">Action executed successfully</span>
+    </div>
+
+    <!-- Configuration Modal -->
+    <div id="configModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-cyber-card border border-cyber-cyan box-glow-cyan rounded-lg max-w-lg w-full p-5 text-xs sm:text-sm space-y-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-cyber-border pb-2">
+                <h3 class="text-cyber-cyan font-bold text-base flex items-center space-x-2">
+                    <i class="fas fa-user-gear"></i>
+                    <span>Configure NFC Card Profile</span>
+                </h3>
+                <button onclick="closeConfigModal()" class="text-gray-400 hover:text-cyber-red text-lg">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <p class="text-gray-400 text-xs">
+                Customize your identity details below. All entries are saved locally on your device (`localStorage`).
+            </p>
+
+            <form id="configForm" onsubmit="saveConfiguration(event)" class="space-y-3">
+                <div>
+                    <label class="block text-gray-300 mb-1">Your Name</label>
+                    <input type="text" id="cfgName" required class="w-full bg-cyber-bg border border-cyber-border focus:border-cyber-cyan rounded p-2 text-white outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-gray-300 mb-1">Role / Job Title</label>
+                    <input type="text" id="cfgRole" required class="w-full bg-cyber-bg border border-cyber-border focus:border-cyber-cyan rounded p-2 text-white outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-gray-300 mb-1">Audit Banner Message</label>
+                    <textarea id="cfgMsg" rows="2" required class="w-full bg-cyber-bg border border-cyber-border focus:border-cyber-cyan rounded p-2 text-white outline-none resize-none"></textarea>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-gray-300 mb-1">LinkedIn URL</label>
+                        <input type="url" id="cfgLinkedIn" class="w-full bg-cyber-bg border border-cyber-border focus:border-cyber-cyan rounded p-2 text-white outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-gray-300 mb-1">GitHub URL</label>
+                        <input type="url" id="cfgGitHub" class="w-full bg-cyber-bg border border-cyber-border focus:border-cyber-cyan rounded p-2 text-white outline-none">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-gray-300 mb-1">Twitter / X URL</label>
+                        <input type="url" id="cfgTwitter" class="w-full bg-cyber-bg border border-cyber-border focus:border-cyber-cyan rounded p-2 text-white outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-gray-300 mb-1">Email Address</label>
+                        <input type="email" id="cfgEmail" class="w-full bg-cyber-bg border border-cyber-border focus:border-cyber-cyan rounded p-2 text-white outline-none">
+                    </div>
+                </div>
+
+                <div class="pt-2 flex items-center justify-end space-x-2">
+                    <button type="button" onclick="resetDefaults()" class="px-3 py-2 rounded border border-cyber-border text-gray-400 hover:text-white">
+                        Reset Defaults
+                    </button>
+                    <button type="submit" class="px-4 py-2 rounded bg-cyber-cyan text-black font-bold hover:bg-opacity-90">
+                        Save Configuration
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Application JavaScript Logic -->
+    <script>
+        // Default Identity Profile
+        const DEFAULT_PROFILE = {
+            name: "Alex Mercer",
+            role: "Senior Security Consultant & Red Teamer",
+            message: "Relax! You have successfully passed the physical NFC proximity test. You scanned the digital business card of Alex Mercer.",
+            linkedin: "https://linkedin.com",
+            github: "https://github.com",
+            twitter: "https://x.com",
+            email: "alex@example-security.com"
+        };
+
+        let currentProfile = { ...DEFAULT_PROFILE };
+        let soundEnabled = false;
+        let audioCtx = null;
+
+        // Web Audio Synthesizer
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        function playSound(freq = 800, duration = 0.03, type = "sine") {
+            if (!soundEnabled || !audioCtx) return;
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.04, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            } catch (e) {
+                // Ignore browser autoplay restrictions
+            }
+        }
+
+        function toggleSound() {
+            soundEnabled = !soundEnabled;
+            if (soundEnabled) initAudio();
+            
+            const soundIcon = document.getElementById('soundIcon');
+            const soundLabel = document.getElementById('soundLabel');
+            
+            if (soundEnabled) {
+                soundIcon.className = "fas fa-volume-high text-cyber-green";
+                soundLabel.innerText = "Audio ON";
+                playSound(1000, 0.1);
+                showToast("Audio effects enabled");
+            } else {
+                soundIcon.className = "fas fa-volume-mute";
+                soundLabel.innerText = "Mute";
+                showToast("Audio muted");
+            }
+        }
+
+        // Matrix Rain Canvas Effect
+        const canvas = document.getElementById('matrixCanvas');
+        const ctx = canvas.getContext('2d');
+        let matrixColor = '#00ff66';
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&*§µ01';
+        const fontSize = 14;
+        let columns = Math.floor(canvas.width / fontSize);
+        let drops = Array(columns).fill(1);
+
+        function drawMatrix() {
+            ctx.fillStyle = 'rgba(5, 5, 8, 0.08)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = matrixColor;
+            ctx.font = fontSize + 'px monospace';
+
+            for (let i = 0; i < drops.length; i++) {
+                const text = chars.charAt(Math.floor(Math.random() * chars.length));
+                ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+
+                if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {
+                    drops[i] = 0;
+                }
+                drops[i]++;
+            }
+        }
+        setInterval(drawMatrix, 40);
+
+        function cycleMatrixTheme() {
+            if (matrixColor === '#00ff66') {
+                matrixColor = '#00f0ff';
+                showToast("Matrix Theme: Cyan");
+            } else if (matrixColor === '#00f0ff') {
+                matrixColor = '#ff0055';
+                showToast("Matrix Theme: Red");
+            } else {
+                matrixColor = '#00ff66';
+                showToast("Matrix Theme: Classic Green");
+            }
+            playSound(900, 0.05);
+        }
+
+        // Device Metadata Detection
+        function detectDeviceMetadata() {
+            const ua = navigator.userAgent;
+            let platform = "Unknown Device";
+            if (/iPhone|iPad|iPod/i.test(ua)) platform = "iOS Mobile Device";
+            else if (/Android/i.test(ua)) platform = "Android Mobile Device";
+            else if (/Macintosh/i.test(ua)) platform = "macOS Workstation";
+            else if (/Windows/i.test(ua)) platform = "Windows System";
+            else if (/Linux/i.test(ua)) platform = "Linux Terminal";
+
+            const res = `${window.screen.width}x${window.screen.height}`;
+            const onlineStatus = navigator.onLine ? "ONLINE" : "OFFLINE";
+
+            return { platform, res, onlineStatus };
+        }
+
+        // Terminal Automated Boot Sequence
+        const terminalWindow = document.getElementById('terminalWindow');
+
+        function appendLogLine(htmlContent, soundFreq = 600) {
+            const line = document.createElement('div');
+            line.className = "leading-tight font-mono";
+            line.innerHTML = htmlContent;
+            terminalWindow.appendChild(line);
+            terminalWindow.scrollTop = terminalWindow.scrollHeight;
+            playSound(soundFreq, 0.02);
+        }
+
+        function runBootSequence() {
+            const meta = detectDeviceMetadata();
+
+            const bootSequence = [
+                { text: "[0.01s] [+] NFC Proximity Handshake Initiated...", type: "info", delay: 150 },
+                { text: `[0.08s] [+] Target System: <span class="text-white">${meta.platform}</span> (${meta.res} | ${meta.onlineStatus})`, type: "info", delay: 450 },
+                { text: "[0.22s] [+] Extracting Physical NFC Tag & Cryptographic Handshake...", type: "info", delay: 850 },
+                { text: "[0.35s] [+] Establishing Encrypted Proximity Session... [OK]", type: "success", delay: 1250 },
+                { text: "[0.51s] [+] Querying Local Physical Access Security Policies...", type: "info", delay: 1650 },
+                { text: "[0.72s] [⚠️] ALERT: Unencrypted Proximity Defense Bypassed!", type: "warning", delay: 2100 },
+                { text: "[0.89s] [!] Executing Cyber Security Audit Payload...", type: "danger", delay: 2600 }
+            ];
+
+            bootSequence.forEach((item) => {
+                setTimeout(() => {
+                    let colorClass = "text-cyber-green";
+                    if (item.type === "warning") colorClass = "text-cyber-yellow glow-yellow";
+                    if (item.type === "danger") colorClass = "text-cyber-red glow-red font-bold";
+                    if (item.type === "success") colorClass = "text-cyber-cyan glow-cyan";
+
+                    appendLogLine(`<span class="${colorClass}">${item.text}</span>`, item.type === "danger" ? 1200 : 700);
+                }, item.delay);
+            });
+
+            setTimeout(() => {
+                appendLogLine(`<span class="text-cyber-green font-bold">[1.00s] [✓] Audit sequence completed successfully! Displaying card info...</span>`, 900);
+                showAuditBanner();
+            }, 3100);
+        }
+
+        function showAuditBanner() {
+            const banner = document.getElementById('auditBanner');
+            document.getElementById('auditTimestamp').innerText = new Date().toLocaleTimeString();
+            banner.classList.remove('hidden');
+            setTimeout(() => {
+                banner.classList.remove('translate-y-4', 'opacity-0');
+            }, 50);
+            playSound(1000, 0.15, "square");
+        }
+
+        // CLI Commands Processor
+        const cliInput = document.getElementById('cliInput');
+
+        cliInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                handleCommandSubmit();
+            } else {
+                playSound(400 + Math.random() * 300, 0.01);
+            }
+        });
+
+        function handleCommandSubmit() {
+            const cmd = cliInput.value.trim().toLowerCase();
+            if (!cmd) return;
+
+            appendLogLine(`<span class="text-gray-400">guest@cyber-card:~$</span> <span class="text-white">${cmd}</span>`, 800);
+            cliInput.value = '';
+
+            processCommand(cmd);
+        }
+
+        function processCommand(cmd) {
+            switch(cmd) {
+                case 'help':
+                    appendLogLine(`
+                        <div class="text-cyber-cyan my-1 font-bold">Available Commands:</div>
+                        <div class="grid grid-cols-2 gap-x-4 max-w-sm text-xs text-gray-300">
+                            <div><span class="text-cyber-green">about</span> - Identity summary</div>
+                            <div><span class="text-cyber-green">skills</span> - Security technical skills</div>
+                            <div><span class="text-cyber-green">contact</span> - Socials & email links</div>
+                            <div><span class="text-cyber-green">matrix</span> - Toggle matrix rain colors</div>
+                            <div><span class="text-cyber-green">clear</span> - Clear output window</div>
+                            <div><span class="text-cyber-green">audio</span> - Toggle synth audio</div>
+                            <div><span class="text-cyber-green">vcard</span> - Download contact .vcf</div>
+                        </div>
+                    `);
+                    break;
+                case 'about':
+                    appendLogLine(`<div class="text-gray-300"><span class="text-cyber-green font-bold">${currentProfile.name}</span>: ${currentProfile.role}</div>`);
+                    break;
+                case 'skills':
+                    appendLogLine(`
+                        <div class="text-gray-300">
+                            <span class="text-cyber-cyan">[Skills]</span> Pentesting | Web Security | Wireless Exploitation | Cloud Defense | Reverse Engineering | Incident Response
+                        </div>
+                    `);
+                    break;
+                case 'contact':
+                    appendLogLine(`
+                        <div class="text-gray-300">
+                            Email: <a href="mailto:${currentProfile.email}" class="text-cyber-cyan underline">${currentProfile.email}</a><br>
+                            LinkedIn: <a href="${currentProfile.linkedin}" target="_blank" class="text-cyber-cyan underline">${currentProfile.linkedin}</a>
+                        </div>
+                    `);
+                    break;
+                case 'clear':
+                    terminalWindow.innerHTML = '';
+                    break;
+                case 'matrix':
+                case 'matrix-red':
+                case 'matrix-cyan':
+                    cycleMatrixTheme();
+                    break;
+                case 'audio':
+                    toggleSound();
+                    break;
+                case 'vcard':
+                    downloadVCard();
+                    break;
+                default:
+                    appendLogLine(`<span class="text-cyber-red">Command not recognized: '${cmd}'. Type 'help' for available options.</span>`, 300);
+            }
+        }
+
+        // Profile Local Storage Management
+        function loadProfile() {
+            const saved = localStorage.getItem('nfc_terminal_profile');
+            if (saved) {
+                try {
+                    currentProfile = JSON.parse(saved);
+                } catch(e) {
+                    currentProfile = { ...DEFAULT_PROFILE };
+                }
+            } else {
+                currentProfile = { ...DEFAULT_PROFILE };
+            }
+            updateProfileUI();
+        }
+
+        function updateProfileUI() {
+            document.getElementById('displayName').innerText = currentProfile.name;
+            document.getElementById('displayRole').innerText = currentProfile.role;
+            document.getElementById('displayMessage').innerText = currentProfile.message;
+
+            document.getElementById('linkLinkedIn').href = currentProfile.linkedin || '#';
+            document.getElementById('linkGitHub').href = currentProfile.github || '#';
+            document.getElementById('linkEmail').href = `mailto:${currentProfile.email}` || '#';
+        }
+
+        function openConfigModal() {
+            document.getElementById('cfgName').value = currentProfile.name;
+            document.getElementById('cfgRole').value = currentProfile.role;
+            document.getElementById('cfgMsg').value = currentProfile.message;
+            document.getElementById('cfgLinkedIn').value = currentProfile.linkedin;
+            document.getElementById('cfgGitHub').value = currentProfile.github;
+            document.getElementById('cfgTwitter').value = currentProfile.twitter;
+            document.getElementById('cfgEmail').value = currentProfile.email;
+
+            const modal = document.getElementById('configModal');
+            modal.classList.remove('hidden');
+            setTimeout(() => modal.classList.remove('opacity-0'), 10);
+        }
+
+        function closeConfigModal() {
+            const modal = document.getElementById('configModal');
+            modal.classList.add('opacity-0');
+            setTimeout(() => modal.classList.add('hidden'), 300);
+        }
+
+        function saveConfiguration(e) {
+            e.preventDefault();
+            currentProfile = {
+                name: document.getElementById('cfgName').value.trim(),
+                role: document.getElementById('cfgRole').value.trim(),
+                message: document.getElementById('cfgMsg').value.trim(),
+                linkedin: document.getElementById('cfgLinkedIn').value.trim(),
+                github: document.getElementById('cfgGitHub').value.trim(),
+                twitter: document.getElementById('cfgTwitter').value.trim(),
+                email: document.getElementById('cfgEmail').value.trim(),
+            };
+
+            localStorage.setItem('nfc_terminal_profile', JSON.stringify(currentProfile));
+            updateProfileUI();
+            closeConfigModal();
+            showToast("NFC Profile updated");
+            appendLogLine(`<span class="text-cyber-green">[✓] Profile details updated successfully.</span>`);
+        }
+
+        function resetDefaults() {
+            currentProfile = { ...DEFAULT_PROFILE };
+            localStorage.removeItem('nfc_terminal_profile');
+            updateProfileUI();
+            closeConfigModal();
+            showToast("Reset to defaults");
+            appendLogLine(`<span class="text-cyber-yellow">[!] Profile reset to default values.</span>`);
+        }
+
+        // Contact vCard Generator
+        function downloadVCard() {
+            const vCardData = `BEGIN:VCARD
+VERSION:3.0
+FN:${currentProfile.name}
+TITLE:${currentProfile.role}
+EMAIL;TYPE=INTERNET,WORK:${currentProfile.email}
+URL;TYPE=LinkedIn:${currentProfile.linkedin}
+URL;TYPE=GitHub:${currentProfile.github}
+NOTE:Scanned via Cyber Security NFC Badge
+END:VCARD`;
+
+            const blob = new Blob([vCardData], { type: 'text/vcard' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = `${currentProfile.name.replace(/\s+/g, '_')}_Contact.vcf`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            showToast("vCard Downloaded");
+            appendLogLine(`<span class="text-cyber-green">[✓] vCard generated and downloaded.</span>`);
+        }
+
+        // Toast Notification Helper
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toastMsg').innerText = msg;
+            toast.classList.remove('translate-y-10', 'opacity-0');
+            setTimeout(() => {
+                toast.classList.add('translate-y-10', 'opacity-0');
+            }, 2500);
+        }
+
+        // Copy Share Link Helper
+        function copyShareUrl() {
+            const dummy = document.createElement('input');
+            document.body.appendChild(dummy);
+            dummy.value = window.location.href;
+            dummy.select();
+            document.execCommand('copy');
+            document.body.removeChild(dummy);
+            showToast("URL copied to clipboard");
+        }
+
+        // On Page Load
+        window.onload = function() {
+            loadProfile();
+            runBootSequence();
+        };
+    </script>
+</body>
+</html>
+```
